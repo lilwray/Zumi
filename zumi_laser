@@ -1,0 +1,178 @@
+#include <Servo.h>
+#include <Adafruit_NeoPixel.h>
+
+// Pins for the ultrasonic sensor
+const int trigPin = 10; // Trigger pin
+const int echoPin = 11; // Echo pin
+
+// Servo and laser pins
+const int xServoPin = 6;
+const int yServoPin = 9;
+const int laserPin = 3;
+
+// NeoPixel ring settings
+const int neopixelPin = 5; // Pin for the NeoPixel ring
+const int numPixels = 35;  // Number of LEDs in the ring
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, neopixelPin, NEO_GRB + NEO_KHZ800);
+
+// Servo movement boundaries
+float min_x = 5;
+float max_x = 50;
+float min_y = 5;
+float max_y = 35;
+float minimal_movement = 5;
+
+// Timing and laser settings
+int min_freeze = 600;   // Minimum pause time in milliseconds
+int max_freeze = 3000;  // Maximum pause time in milliseconds
+int laserBrightness = 180; // 0 (off) to 255 (full brightness)
+unsigned long laserOnTime = 15000; // Laser stays on for 15 seconds (15,000 ms)
+
+// Servo position variables
+float x_position = min_x + (max_x - min_x) / 2;
+float y_position = min_y + (max_y - min_y) / 2;
+float x_old_position = x_position;
+float y_old_position = y_position;
+
+// Servo objects
+Servo x_servo;
+Servo y_servo;
+
+// Timing variables
+unsigned long lastDetectionTime = 0;
+bool isLaserActive = false; // Tracks whether the laser and motor sequence is active
+
+void setup() {
+  // Attach servos to their respective pins
+  x_servo.attach(xServoPin);
+  y_servo.attach(yServoPin);
+
+  // Laser setup
+  pinMode(laserPin, OUTPUT);
+  analogWrite(laserPin, 0); // Laser initially off
+
+  // NeoPixel setup
+  strip.begin();
+  strip.show(); // Initialize all pixels to 'off'
+
+  // Ultrasonic sensor setup
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  // Center servos at startup
+  x_servo.write(x_position);
+  y_servo.write(y_position);
+
+  Serial.begin(9600); // For debugging
+}
+
+void loop() {
+  // Check if laser sequence is currently active
+  if (!isLaserActive && isMotionDetected()) {
+    Serial.println("Motion detected within range! Activating laser and servos.");
+    lastDetectionTime = millis(); // Record the time of detection
+    isLaserActive = true;         // Activate the laser sequence
+    analogWrite(laserPin, laserBrightness); // Turn on the laser
+  }
+
+  // If the laser is active, keep it running for the specified time
+  if (isLaserActive) {
+    if (millis() - lastDetectionTime <= laserOnTime) {
+      performLaserSequence(); // Perform random servo movements
+      animateNeoPixels();     // Light up the NeoPixel ring
+    } else {
+      isLaserActive = false;       // Reset laser active state
+      analogWrite(laserPin, 0);    // Turn off the laser
+      strip.clear();               // Turn off all NeoPixels
+      strip.show();
+    }
+  }
+
+  delay(100); // Small delay for stability
+}
+
+// Function to measure distance using ultrasonic sensor
+bool isMotionDetected() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  // Read echo time and convert to distance in cm
+  long duration = pulseIn(echoPin, HIGH);
+  int distance = duration * 0.034 / 2; // Speed of sound: 0.034 cm/us
+  Serial.print("Distance: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+
+  // Detect motion if the object is within 100 cm
+  return (distance > 0 && distance < 100);
+}
+
+// Function to handle random servo movements
+void performLaserSequence() {
+  int movement_time = random(10, 40);
+  int random_delay = random(min_freeze, max_freeze);
+
+  // Calculate new positions within the range
+  float x_new_position = random(min_x + minimal_movement, max_x - minimal_movement);
+  float y_new_position = random(min_y + minimal_movement, max_y - minimal_movement);
+
+  // Ensure significant movement from the old position
+  if ((x_new_position > x_old_position) && (abs(x_new_position - x_old_position) < minimal_movement)) {
+    x_new_position += minimal_movement;
+  } else if ((x_new_position < x_old_position) && (abs(x_new_position - x_old_position) < minimal_movement)) {
+    x_new_position -= minimal_movement;
+  }
+
+  if ((y_new_position > y_old_position) && (abs(y_new_position - y_old_position) < minimal_movement)) {
+    y_new_position += minimal_movement;
+  } else if ((y_new_position < y_old_position) && (abs(y_new_position - y_old_position) < minimal_movement)) {
+    y_new_position -= minimal_movement;
+  }
+
+  // Calculate speeds for smooth movement
+  float x_speed = (x_new_position - x_old_position) / movement_time;
+  float y_speed = (y_new_position - y_old_position) / movement_time;
+
+  // Move servos incrementally to new positions
+  for (int step = 0; step < movement_time; step++) {
+    x_position += x_speed;
+    y_position += y_speed;
+
+    x_servo.write(x_position);
+    y_servo.write(y_position);
+
+    delay(10); // Smooth movement delay
+  }
+
+  // Update old positions
+  x_old_position = x_new_position;
+  y_old_position = y_new_position;
+
+  // Pause before next movement
+  delay(random_delay);
+}
+
+// Function to animate NeoPixel ring
+void animateNeoPixels() {
+  static unsigned long lastUpdateTime = 0;
+  static int ledIndex = 0;
+
+  // Update every 100 ms for smooth animation
+  if (millis() - lastUpdateTime > 100) {
+    lastUpdateTime = millis();
+
+    // Clear the ring and light up 3 LEDs in a clockwise motion
+    strip.clear();
+    for (int i = 0; i < 3; i++) {
+      int pixelIndex = (ledIndex + i) % numPixels;
+      strip.setPixelColor(pixelIndex, strip.Color(255, 255, 255)); // White color
+    }
+    strip.show();
+
+    // Move to the next set of LEDs
+    ledIndex = (ledIndex + 1) % numPixels;
+  }
+}
