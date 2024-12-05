@@ -1,6 +1,10 @@
 #include <Servo.h>
 #include <Adafruit_NeoPixel.h>
 
+// Delay constants
+unsigned long previousMillis = 0; // Store the last time the delay started
+const long interval = 1000; // Delay interval in milliseconds (e.g., 1 second)
+
 // Pins for the ultrasonic sensor
 const int trigPin = 10; // Trigger pin
 const int echoPin = 11; // Echo pin
@@ -67,6 +71,8 @@ void setup() {
 }
 
 void loop() {
+  unsigned long currentMillis = millis(); // Get the current time
+
   // Check if laser sequence is currently active
   if (!isLaserActive && isMotionDetected()) {
     Serial.println("Motion detected within range! Activating laser and servos.");
@@ -78,7 +84,11 @@ void loop() {
   // If the laser is active, keep it running for the specified time
   if (isLaserActive) {
     if (millis() - lastDetectionTime <= laserOnTime) {
-      performLaserSequence(); // Perform random servo movements
+      // Delayed functions
+      if (currentMillis - previousMillis >= interval) {
+        previousMillis = currentMillis; // Update the timestamp
+        performLaserSequence(); // Perform random servo movements
+      }
       animateNeoPixels();     // Light up the NeoPixel ring
     } else {
       isLaserActive = false;       // Reset laser active state
@@ -88,7 +98,7 @@ void loop() {
     }
   }
 
-  delay(100); // Small delay for stability
+  //delay(100); // Small delay for stability - old delay
 }
 
 // Function to measure distance using ultrasonic sensor
